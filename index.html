@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Management</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="buttons">
+    <input type="text" id="searchInput" placeholder="Search product by ID, name, or category..." />
+        <a href="sales.html"><button>SALES</button></a>
+    </div>
+    <button id="logoutBtn">Logout</button>
+    
+  </header>
+
+  <h1>Product Management</h1>
+
+  <!-- Add Product Form -->
+  <form id="addForm">
+    <input type="text" id="productId" placeholder="Product ID" required />
+    <input type="text" id="name" placeholder="Product Name" required />
+    <input type="text" id="category" placeholder="Category" required />
+    <input type="number" id="quantity" placeholder="Quantity" required />
+    <input type="number" step="0.01" id="price" placeholder="Price" required />
+    <button type="submit">Add Product</button>
+  </form>
+
+  <!-- Product Table -->
+  <table id="productTable">
+    <thead>
+      <tr>
+        <th>Product ID</th>
+        <th>Name</th>
+        <th>Category</th>
+        <th>Quantity</th>
+        <th>Price</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- Modal Overlay -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <h2 id="modalTitle">Edit Product</h2>
+      <form id="modalForm">
+        <input type="text" id="modalProductId" placeholder="Product ID" required />
+        <input type="text" id="modalName" placeholder="Name" required />
+        <input type="text" id="modalCategory" placeholder="Category" required />
+        <input type="number" id="modalQuantity" placeholder="Quantity" required />
+        <input type="number" step="0.01" id="modalPrice" placeholder="Price" required />
+        <div class="modal-buttons">
+          <button type="submit">Save</button>
+          <button type="button" id="modalCancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="./firebase.js"></script>
+  <script type="module" src="./auth.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

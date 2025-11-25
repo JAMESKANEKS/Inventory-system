@@ -98,7 +98,16 @@
 
           <div class="charts-grid">
             <div class="chart-box" id="movementTrend">
-              <h3>Sales by Product</h3>
+              <div class="chart-header">
+                <h3>Sales by Product</h3>
+                <div class="date-range-filter">
+                  <input type="date" id="salesStartDate" class="date-input">
+                  <span>to</span>
+                  <input type="date" id="salesEndDate" class="date-input">
+                  <button id="applyDateFilter" class="btn btn-primary">Apply</button>
+                  <button id="resetDateFilter" class="btn btn-secondary">Reset</button>
+                </div>
+              </div>
               <canvas id="salesChart"></canvas>
             </div>
             <div class="chart-box" id="inventorySummary">

@@ -200,15 +200,97 @@ async function updateTotalSales() {
 let salesChartInstance = null;
 let stockChartInstance = null;
 
+// Date range filter state
+let dateRange = {
+  startDate: null,
+  endDate: null
+};
+
+// Initialize date range pickers
+document.addEventListener('DOMContentLoaded', () => {
+  // Set default date range to current month
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  
+  const formatDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const startDateInput = document.getElementById('salesStartDate');
+  const endDateInput = document.getElementById('salesEndDate');
+  const applyFilterBtn = document.getElementById('applyDateFilter');
+  const resetFilterBtn = document.getElementById('resetDateFilter');
+
+  if (startDateInput && endDateInput) {
+    startDateInput.value = formatDate(firstDay);
+    endDateInput.value = formatDate(today);
+    
+    dateRange = {
+      startDate: firstDay,
+      endDate: today
+    };
+
+    // Apply filter when button is clicked
+    applyFilterBtn?.addEventListener('click', () => {
+      const startDate = new Date(startDateInput.value);
+      const endDate = new Date(endDateInput.value);
+      
+      if (startDate && endDate && startDate <= endDate) {
+        dateRange = { startDate, endDate };
+        updateSalesChart();
+      } else {
+        alert('Please select a valid date range');
+      }
+    });
+
+    // Reset filter
+    resetFilterBtn?.addEventListener('click', () => {
+      startDateInput.value = formatDate(firstDay);
+      endDateInput.value = formatDate(today);
+      dateRange = {
+        startDate: firstDay,
+        endDate: today
+      };
+      updateSalesChart();
+    });
+  }
+});
+
 // Update Sales Chart
 async function updateSalesChart() {
   try {
     const logsQuery = collection(db, 'logs');
     onSnapshot(logsQuery, (snap) => {
       const salesByProduct = {};
+      const { startDate, endDate } = dateRange;
+      
+      // Reset end of day for proper date comparison
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
       snap.forEach(doc => {
         const log = doc.data();
-        if (log.type === 'out') {
+        
+        // Convert Firestore timestamp to Date
+        let logDate;
+        if (log.timestamp?.toDate) {
+          logDate = log.timestamp.toDate();
+        } else if (log.timestamp?.seconds) {
+          logDate = new Date(log.timestamp.seconds * 1000);
+        } else if (log.timestamp) {
+          logDate = new Date(log.timestamp);
+        } else {
+          return; // Skip if no valid timestamp
+        }
+        
+        // Check if log is within date range and is a sale
+        if (log.type === 'out' && logDate >= start && logDate <= end) {
           const product = allProducts.find(p => p.id === log.productId);
           if (product && product.price) {
             const productName = product.name;
@@ -217,6 +299,14 @@ async function updateSalesChart() {
           }
         }
       });
+      
+      // Update the chart title with date range
+      const chartTitle = document.querySelector('#movementTrend h3');
+      if (chartTitle) {
+        const startDateStr = start.toLocaleDateString();
+        const endDateStr = end.toLocaleDateString();
+        chartTitle.textContent = `Sales by Product (${startDateStr} to ${endDateStr})`;
+      }
 
       const labels = Object.keys(salesByProduct);
       const data = Object.values(salesByProduct);

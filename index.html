@@ -3,59 +3,328 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Product Management</title>
+  <title>Inventory Management System</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <header>
-    <div class="buttons">
-    <input type="text" id="searchInput" placeholder="Search product by ID, name, or category..." />
-        <a href="sales.html"><button>SALES</button></a>
-    </div>
-    <button id="logoutBtn">Logout</button>
-    
-  </header>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2 class="logo"><img src="logo1.png" alt="logo"> Boy Paint Center</h2>
+      </div>
+      <nav class="sidebar-nav">
+        <button data-section="dashboard" class="nav-item active">
+          <span class="icon">📊</span>
+          <span class="label">Dashboard</span>
+        </button>
+        <button data-section="products" class="nav-item">
+          <span class="icon">📦</span>
+          <span class="label">Products</span>
+        </button>
+        <button data-section="stock" class="nav-item">
+          <span class="icon">📥</span>
+          <span class="label">Stock</span>
+        </button>
+        <button data-section="logs" class="nav-item">
+          <span class="icon">📜</span>
+          <span class="label">Logs</span>
+        </button>
+        <button data-section="settings" class="nav-item admin-only">
+          <span class="icon">⚙️</span>
+          <span class="label">Settings</span>
+        </button>
+      </nav>
+    </aside>
 
-  <h1>Product Management</h1>
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Header -->
+      <header class="top-header">
+        <div class="header-right">
+          <div class="user-profile">
+            <span id="userEmail" class="user-email">User</span>
+            <button id="logoutBtn" class="btn btn-danger">Logout</button>
+          </div>
+        </div>
+      </header>
 
-  <!-- Add Product Form -->
-  <form id="addForm">
-    <input type="text" id="productId" placeholder="Product ID" required />
-    <input type="text" id="name" placeholder="Product Name" required />
-    <input type="text" id="category" placeholder="Category" required />
-    <input type="number" id="quantity" placeholder="Quantity" required />
-    <input type="number" step="0.01" id="price" placeholder="Price" required />
-    <button type="submit">Add Product</button>
-  </form>
+      <!-- Page Content -->
+      <div class="content-area">
+        <!-- Dashboard Section -->
+        <section id="dashboard" class="section active">
+          <div class="section-header">
+            <h1>Dashboard</h1>
+            <p class="subtitle">Overview of your inventory</p>
+          </div>
+          
+          <div class="dashboard-cards">
+            <div class="stat-card">
+              <div class="stat-icon">📦</div>
+              <div class="stat-content">
+                <div class="stat-value" id="totalProducts">0</div>
+                <div class="stat-label">Total Products</div>
+              </div>
+            </div>
+            <div class="stat-card alert">
+              <div class="stat-icon">⚠️</div>
+              <div class="stat-content">
+                <div class="stat-value" id="lowStockCount">0</div>
+                <div class="stat-label">Low Stock Alerts</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">📈</div>
+              <div class="stat-content">
+                <div class="stat-value" id="stockMovementToday">0</div>
+                <div class="stat-label">Stock Movement Today</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">💰</div>
+              <div class="stat-content">
+                <div class="stat-value" id="totalSales">₱0</div>
+                <div class="stat-label">Total Sales Revenue</div>
+              </div>
+            </div>
+          </div>
 
-  <!-- Product Table -->
-  <table id="productTable">
-    <thead>
-      <tr>
-        <th>Product ID</th>
-        <th>Name</th>
-        <th>Category</th>
-        <th>Quantity</th>
-        <th>Price</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+          <div class="charts-grid">
+            <div class="chart-box" id="movementTrend">
+              <h3>Sales by Product</h3>
+              <canvas id="salesChart"></canvas>
+            </div>
+            <div class="chart-box" id="inventorySummary">
+              <h3>Stock Levels</h3>
+              <canvas id="stockChart"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <!-- Products Section -->
+        <section id="products" class="section">
+          <div class="section-header">
+            <h1>Product Management</h1>
+            <p class="subtitle">Add, edit, or manage your products</p>
+          </div>
+
+          <!-- Add Product Form -->
+          <div class="form-card">
+            <h3>Add New Product</h3>
+            <form id="addForm" class="form-grid">
+              <input type="text" id="productId" placeholder="Product ID" required />
+              <input type="text" id="name" placeholder="Product Name" required />
+              <input type="text" id="category" placeholder="Category" required />
+              <input type="number" id="price" placeholder="Price" step="0.01" required />
+              <input type="text" id="unit" placeholder="Unit (pcs, box...)" />
+              <input type="number" id="quantity" placeholder="Beginning quantity" required />
+              <button type="submit" class="btn btn-primary">Add Product</button>
+            </form>
+          </div>
+
+          <div class="header-left">
+          <input type="text" id="searchInput" placeholder="Search products..." class="search-input" />
+        </div>
+
+          <!-- Product Controls -->
+          <div class="product-controls">
+            <select id="categoryFilter" class="control-select"><option value="">All Categories</option></select>
+            <select id="sortBy" class="control-select"><option value="name">Sort: Name</option><option value="quantity">Quantity</option></select>
+          </div>
+
+          <!-- Product Table -->
+          <div class="table-card">
+            <table id="productTable">
+              <thead>
+                <tr>
+                  <th>Product ID</th>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Unit</th>
+                  <th>Quantity</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Stock Management Section -->
+        <section id="stock" class="section">
+          <div class="section-header">
+            <h1>Stock Management</h1>
+            <p class="subtitle">Record stock movements</p>
+          </div>
+
+          <div class="stock-grid">
+            <div class="form-card">
+              <h3>📥 Stock-In</h3>
+              <form id="stockInForm" class="form-grid">
+                <input id="stockInProduct" placeholder="Product ID or name" required />
+                <input type="number" id="stockInQty" placeholder="Quantity" required />
+                <input id="stockInRemarks" placeholder="Remarks (optional)" />
+                <button type="submit" class="btn btn-primary">Record Stock-In</button>
+              </form>
+            </div>
+
+            <div class="form-card">
+              <h3>📤 Stock-Out</h3>
+              <form id="stockOutForm" class="form-grid">
+                <input id="stockOutProduct" placeholder="Product ID or name" required />
+                <input type="number" id="stockOutQty" placeholder="Quantity" required />
+                <select id="stockOutReason">
+                  <option value="sold">Sold</option>
+                  <option value="damaged">Damaged</option>
+                  <option value="transferred">Transferred</option>
+                </select>
+                <button type="submit" class="btn btn-primary">Record Stock-Out</button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- Logs Section -->
+        <section id="logs" class="section">
+          <div class="section-header">
+            <h1>Inventory Logs</h1>
+            <p class="subtitle">Complete history of all stock movements</p>
+          </div>
+
+          <div class="filter-card">
+            <input id="logProductFilter" placeholder="Filter by product" class="filter-input" />
+            <input type="date" id="logFrom" class="filter-input" />
+            <input type="date" id="logTo" class="filter-input" />
+            <select id="logType" class="filter-input">
+              <option value="">All</option>
+              <option value="in">Stock-In</option>
+              <option value="out">Stock-Out</option>
+            </select>
+          </div>
+
+          <div class="table-card">
+            <table id="logsTable">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>User</th>
+                  <th>Product</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Price</th>
+                  <th>Total Sales</th>
+                  <th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Reports Section -->
+        <section id="reports" class="section">
+          <div class="section-header">
+            <h1>Reports</h1>
+            <p class="subtitle">Generate and export inventory reports</p>
+          </div>
+
+          <div class="form-card">
+            <h3>Report Generator</h3>
+            <div class="report-controls">
+              <select id="reportType">
+                <option value="inventory">Inventory List</option>
+                <option value="low">Low Stock</option>
+                <option value="in">Stock-In</option>
+                <option value="out">Stock-Out</option>
+              </select>
+              <button id="generateReport" class="btn btn-primary">Generate</button>
+              <button id="exportPdf" class="btn btn-secondary">Export PDF</button>
+              <button id="exportExcel" class="btn btn-secondary">Export Excel</button>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div id="reportOutput">Report output will appear here</div>
+          </div>
+        </section>
+
+        <!-- Settings Section -->
+        <section id="settings" class="section admin-only">
+          <div class="section-header">
+            <h1>Settings & Administration</h1>
+            <p class="subtitle">System settings, users, and audit trail</p>
+          </div>
+
+          <div class="settings-grid">
+            <div class="form-card">
+              <h3>⚙️ System Settings</h3>
+              <div class="form-group">
+                <label for="minStockThreshold">Minimum Stock Threshold</label>
+                <input id="minStockThreshold" type="number" value="5" />
+              </div>
+              <button id="saveSettings" class="btn btn-primary">Save Settings</button>
+            </div>
+
+            <div class="form-card">
+              <h3>👤 User Management</h3>
+              <form id="createUserForm" class="form-grid">
+                <input type="email" id="newUserEmail" placeholder="Email" required />
+                <input type="text" id="newUserName" placeholder="Display name (optional)" />
+                <select id="newUserRole">
+                  <option value="Viewer">Viewer</option>
+                  <option value="Staff">Staff</option>
+                  <option value="Admin">Admin</option>
+                </select>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="newUserEnabled" checked /> Enabled
+                </label>
+                <button type="submit" class="btn btn-primary">Create User</button>
+              </form>
+
+              <div style="margin-top:16px;">
+                <div class="info-box">
+                  <strong>Note:</strong> Creating an Auth account requires a Cloud Function. See documentation for setup.
+                </div>
+              </div>
+
+              <div style="margin-top:16px;">
+                <table id="usersTable">
+                  <thead>
+                    <tr><th>Email</th><th>Role</th><th>Enabled</th><th>Actions</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="form-card">
+              <h3>🛡️ Audit Trail</h3>
+              <div id="auditTrail" class="audit-list">Recent activities will appear here</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
 
   <!-- Modal Overlay -->
   <div id="modal" class="modal">
     <div class="modal-content">
-      <h2 id="modalTitle">Edit Product</h2>
-      <form id="modalForm">
+      <div class="modal-header">
+        <h2 id="modalTitle">Edit Product</h2>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <form id="modalForm" class="form-grid">
         <input type="text" id="modalProductId" placeholder="Product ID" required />
         <input type="text" id="modalName" placeholder="Name" required />
         <input type="text" id="modalCategory" placeholder="Category" required />
+        <input type="number" id="modalPrice" placeholder="Price" step="0.01" required />
         <input type="number" id="modalQuantity" placeholder="Quantity" required />
-        <input type="number" step="0.01" id="modalPrice" placeholder="Price" required />
+        <input type="text" id="modalUnit" placeholder="Unit" />
         <div class="modal-buttons">
-          <button type="submit">Save</button>
-          <button type="button" id="modalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" id="modalCancel" class="btn btn-secondary">Cancel</button>
         </div>
       </form>
     </div>

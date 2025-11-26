@@ -7,8 +7,14 @@ import {
   deleteDoc,
   updateDoc,
   getDoc,
+  getDocs,
   addDoc,
+  query,
+  where,
+  orderBy,
+  limit,
   serverTimestamp,
+  Timestamp
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
@@ -113,9 +119,34 @@ function displayProducts(products) {
         <td>${p.category}</td>
         <td>₱${(p.price || 0).toFixed(2)}</td>
         <td>${p.unit || ''}</td>
-        <td>${p.quantity}</td>
+        <td class="quantity-cell">
+          <button class="btn-decrement" data-id="${p.id}">-</button>
+          <input type="number" class="quantity-input" value="${p.quantity}" min="0" data-id="${p.id}">
+          <button class="btn-increment" data-id="${p.id}">+</button>
+        </td>
+        <td class="action-buttons">
+          <button class="btn-update" data-id="${p.id}">Update</button>
+          <button class="btn-delete" data-id="${p.id}">Delete</button>
+        </td>
       </tr>
     `;
+  });
+  
+  // Add event listeners for the new buttons
+  document.querySelectorAll('.btn-increment').forEach(btn => {
+    btn.addEventListener('click', handleIncrement);
+  });
+  
+  document.querySelectorAll('.btn-decrement').forEach(btn => {
+    btn.addEventListener('click', handleDecrement);
+  });
+  
+  document.querySelectorAll('.btn-update').forEach(btn => {
+    btn.addEventListener('click', handleUpdate);
+  });
+  
+  document.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', handleDelete);
   });
   
   // Initialize DataTables after updating the table
@@ -172,27 +203,55 @@ async function updateStockMovementToday() {
   }
 }
 
-// Calculate total sales from logs
+// Calculate total sales from the transactions collection
 async function updateTotalSales() {
   try {
-    const logsQuery = collection(db, 'logs');
-    onSnapshot(logsQuery, (snap) => {
-      let totalRevenue = 0;
-      snap.forEach(doc => {
-        const log = doc.data();
-        // Only count sales where type is 'out' and remarks is 'sold'
-        if (log.type === 'out' && log.remarks === 'sold') {
-          // Find product price and multiply by quantity sold
-          const product = allProducts.find(p => p.id === log.productId);
-          if (product && product.price) {
-            totalRevenue += (product.price * log.qty);
-          }
-        }
-      });
-      document.getElementById('totalSales').textContent = '₱' + totalRevenue.toFixed(2);
+    // Import required Firestore functions
+    const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js');
+    
+    // Get all completed sale transactions
+    const transactionsQuery = query(
+      collection(db, 'transactions'),
+      where('type', '==', 'sale')
+    );
+    
+    const querySnapshot = await getDocs(transactionsQuery);
+    let totalSales = 0;
+    
+    // Sum up the total from each sale transaction
+    querySnapshot.forEach((doc) => {
+      const transaction = doc.data();
+      totalSales += parseFloat(transaction.total) || 0;
     });
+    
+    // Format the total with 2 decimal places and add currency symbol
+    const formattedTotal = isNaN(totalSales) ? '0.00' : totalSales.toLocaleString('en-PH', { 
+      style: 'currency', 
+      currency: 'PHP',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2 
+    });
+    
+    // Update the dashboard card
+    const totalSalesElement = document.getElementById('totalSales');
+    if (totalSalesElement) {
+      totalSalesElement.textContent = formattedTotal;
+      
+      // Also update the total in the POS cart if it exists
+      const cartTotalElement = document.getElementById('cartTotal');
+      if (cartTotalElement) {
+        cartTotalElement.textContent = formattedTotal;
+      }
+    }
+    
+    return totalSales;
   } catch (err) {
-    console.error('Error calculating sales:', err);
+    console.error('Error in updateTotalSales:', err);
+    const totalSalesElement = document.getElementById('totalSales');
+    if (totalSalesElement) {
+      totalSalesElement.textContent = '₱0.00';
+    }
+    return 0;
   }
 }
 
@@ -209,9 +268,11 @@ let dateRange = {
 // Initialize date range pickers
 document.addEventListener('DOMContentLoaded', () => {
   // Set default date range to current month
+  // Initialize date range for sales chart
   const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1); // Default to last 30 days
   
+  // Format date as YYYY-MM-DD for date inputs
   const formatDate = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -225,10 +286,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const resetFilterBtn = document.getElementById('resetDateFilter');
 
   if (startDateInput && endDateInput) {
+    // Set default date range (last 30 days)
     startDateInput.value = formatDate(firstDay);
     endDateInput.value = formatDate(today);
     
-    dateRange = {
+    // Initialize dateRange object
+    window.dateRange = {
       startDate: firstDay,
       endDate: today
     };
@@ -238,153 +301,378 @@ document.addEventListener('DOMContentLoaded', () => {
       const startDate = new Date(startDateInput.value);
       const endDate = new Date(endDateInput.value);
       
-      if (startDate && endDate && startDate <= endDate) {
-        dateRange = { startDate, endDate };
+      if (startDate && endDate) {
+        if (startDate > endDate) {
+          alert('Start date cannot be after end date');
+          return;
+        }
+        
+        // Set time to start and end of day for proper date comparison
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        
+        window.dateRange = { 
+          startDate, 
+          endDate 
+        };
+        
         updateSalesChart();
       } else {
-        alert('Please select a valid date range');
+        alert('Please select valid start and end dates');
       }
     });
 
-    // Reset filter
+    // Reset filter to default (last 30 days)
     resetFilterBtn?.addEventListener('click', () => {
-      startDateInput.value = formatDate(firstDay);
+      const newStartDate = new Date();
+      newStartDate.setMonth(newStartDate.getMonth() - 1);
+      
+      startDateInput.value = formatDate(newStartDate);
       endDateInput.value = formatDate(today);
-      dateRange = {
-        startDate: firstDay,
-        endDate: today
+      
+      newStartDate.setHours(0, 0, 0, 0);
+      const end = new Date(today);
+      end.setHours(23, 59, 59, 999);
+      
+      window.dateRange = {
+        startDate: newStartDate,
+        endDate: end
       };
+      
       updateSalesChart();
     });
+    
+    // Initial chart load
+    updateSalesChart();
   }
 });
 
 // Update Sales Chart
 async function updateSalesChart() {
+  const chartContainer = document.getElementById('movementTrend');
+  
   try {
-    const logsQuery = collection(db, 'logs');
-    onSnapshot(logsQuery, (snap) => {
-      const salesByProduct = {};
-      const { startDate, endDate } = dateRange;
+    // Show loading state
+    if (chartContainer) {
+      chartContainer.innerHTML = `
+        <div class="chart-loading">
+          <div class="spinner"></div>
+          <p>Loading sales data...</p>
+        </div>
+        <canvas id="salesChart" style="display: none;"></canvas>
+      `;
+    }
+
+    // Get date range from the global dateRange object
+    const { startDate, endDate } = window.dateRange || {};
+    
+    if (!startDate || !endDate) {
+      console.error('Date range not properly initialized');
+      return;
+    }
+    
+    // Create new date objects to avoid reference issues
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    
+    console.log('Fetching sales data for range:', start, 'to', end);
+    
+    // Get transactions data with date range filter
+    const transactionsQuery = query(
+      collection(db, 'transactions'),
+      where('type', '==', 'sale'),
+      where('timestamp', '>=', start),
+      where('timestamp', '<=', end),
+      orderBy('timestamp', 'asc')
+    );
+    
+    const transactionsSnapshot = await getDocs(transactionsQuery);
+    console.log('Found', transactionsSnapshot.size, 'transactions in date range');
+    
+    // Group sales by date
+    const salesByDate = {};
+    let hasValidTransactions = false;
+    
+    // Create a map of all dates in the range with zero sales initially
+    const allDates = [];
+    const currentDate = new Date(start);
+    while (currentDate <= end) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      salesByDate[dateStr] = 0;
+      allDates.push(new Date(currentDate));
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // Process each transaction
+    transactionsSnapshot.forEach(doc => {
+      const transaction = doc.data();
       
-      // Reset end of day for proper date comparison
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
+      // Handle different timestamp formats
+      let transactionDate;
+      if (transaction.date?.toDate) {
+        transactionDate = transaction.date.toDate();
+      } else if (transaction.timestamp?.toDate) {
+        transactionDate = transaction.timestamp.toDate();
+      } else if (transaction.date?.seconds) {
+        transactionDate = new Date(transaction.date.seconds * 1000);
+      } else if (transaction.timestamp?.seconds) {
+        transactionDate = new Date(transaction.timestamp.seconds * 1000);
+      } else if (transaction.date) {
+        transactionDate = new Date(transaction.date);
+      } else {
+        console.warn('Transaction has no valid date:', doc.id);
+        return; // Skip transactions without a valid date
+      }
       
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const dateStr = transactionDate.toISOString().split('T')[0];
       
-      snap.forEach(doc => {
-        const log = doc.data();
-        
-        // Convert Firestore timestamp to Date
-        let logDate;
-        if (log.timestamp?.toDate) {
-          logDate = log.timestamp.toDate();
-        } else if (log.timestamp?.seconds) {
-          logDate = new Date(log.timestamp.seconds * 1000);
-        } else if (log.timestamp) {
-          logDate = new Date(log.timestamp);
-        } else {
-          return; // Skip if no valid timestamp
-        }
-        
-        // Check if log is within date range and is a sale
-        if (log.type === 'out' && logDate >= start && logDate <= end) {
-          const product = allProducts.find(p => p.id === log.productId);
-          if (product && product.price) {
-            const productName = product.name;
-            const sales = product.price * log.qty;
-            salesByProduct[productName] = (salesByProduct[productName] || 0) + sales;
+      // Process each item in the transaction
+      if (transaction.items && Array.isArray(transaction.items)) {
+        hasValidTransactions = true;
+        const dailyTotal = transaction.items.reduce((sum, item) => {
+          if (item && item.quantity > 0) {
+            const price = parseFloat(item.price) || 0;
+            const quantity = parseInt(item.quantity) || 0;
+            return sum + (price * quantity);
           }
-        }
-      });
-      
-      // Update the chart title with date range
-      const chartTitle = document.querySelector('#movementTrend h3');
-      if (chartTitle) {
+          return sum;
+        }, 0);
+        
+        salesByDate[dateStr] = (salesByDate[dateStr] || 0) + dailyTotal;
+      }
+    });
+    
+    // Update the chart title with date range
+    const chartTitle = document.querySelector('#movementTrend h3');
+    if (chartTitle) {
+      const startDateStr = start.toLocaleDateString();
+      const endDateStr = end.toLocaleDateString();
+      chartTitle.textContent = `Daily Sales (${startDateStr} to ${endDateStr})`;
+    }
+    
+    // Prepare data for chart
+    const labels = allDates.map(date => {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    
+    const data = allDates.map(date => {
+      const dateStr = date.toISOString().split('T')[0];
+      return salesByDate[dateStr] || 0;
+    });
+    
+    // Show no data message if no sales found
+    if (!hasValidTransactions) {
+      if (chartContainer) {
         const startDateStr = start.toLocaleDateString();
         const endDateStr = end.toLocaleDateString();
-        chartTitle.textContent = `Sales by Product (${startDateStr} to ${endDateStr})`;
+        
+        chartContainer.innerHTML = `
+          <div class="no-data" style="text-align: center; padding: 2rem;">
+            <p>No sales data found for the selected date range.</p>
+            <p>Date Range: ${startDateStr} to ${endDateStr}</p>
+            <button onclick="updateSalesChart()" class="btn btn-primary" style="margin-top: 1rem;">
+              <i class="fas fa-sync"></i> Refresh
+            </button>
+            <button onclick="document.getElementById('resetDateFilter').click()" class="btn btn-secondary" style="margin-top: 0.5rem;">
+              <i class="fas fa-calendar-alt"></i> Reset Date Range
+            </button>
+          </div>
+          <canvas id="salesChart" style="display: none;"></canvas>
+        `;
       }
+      return;
+    }
+    
+    // Get the context of the chart
+    const ctx = document.getElementById('salesChart');
+    if (!ctx) return;
+    
+    // Show the canvas
+    if (chartContainer) {
+      const canvas = chartContainer.querySelector('canvas');
+      if (canvas) canvas.style.display = 'block';
+    }
 
-      const labels = Object.keys(salesByProduct);
-      const data = Object.values(salesByProduct);
-      
-      // Color palette for different products
-      const colors = [
-        'rgba(37, 99, 235, 0.7)',    // Blue
-        'rgba(59, 130, 246, 0.7)',   // Sky Blue
-        'rgba(99, 102, 241, 0.7)',   // Indigo
-        'rgba(139, 92, 246, 0.7)',   // Purple
-        'rgba(168, 85, 247, 0.7)',   // Violet
-        'rgba(236, 72, 153, 0.7)',   // Pink
-        'rgba(244, 63, 94, 0.7)',    // Rose
-        'rgba(239, 68, 68, 0.7)',    // Red
-        'rgba(249, 115, 22, 0.7)',   // Orange
-        'rgba(251, 146, 60, 0.7)',   // Amber
-        'rgba(34, 197, 94, 0.7)',    // Green
-        'rgba(6, 182, 212, 0.7)'     // Cyan
-      ];
-      
-      const borderColors = [
-        'rgba(37, 99, 235, 1)',      // Blue
-        'rgba(59, 130, 246, 1)',     // Sky Blue
-        'rgba(99, 102, 241, 1)',     // Indigo
-        'rgba(139, 92, 246, 1)',     // Purple
-        'rgba(168, 85, 247, 1)',     // Violet
-        'rgba(236, 72, 153, 1)',     // Pink
-        'rgba(244, 63, 94, 1)',      // Rose
-        'rgba(239, 68, 68, 1)',      // Red
-        'rgba(249, 115, 22, 1)',     // Orange
-        'rgba(251, 146, 60, 1)',     // Amber
-        'rgba(34, 197, 94, 1)',      // Green
-        'rgba(6, 182, 212, 1)'       // Cyan
-      ];
-
-      const backgroundColor = labels.map((_, i) => colors[i % colors.length]);
-      const borderColor = labels.map((_, i) => borderColors[i % borderColors.length]);
-
-      const ctx = document.getElementById('salesChart');
-      if (!ctx) return;
-
-      if (salesChartInstance) {
-        salesChartInstance.data.labels = labels;
-        salesChartInstance.data.datasets[0].data = data;
-        salesChartInstance.data.datasets[0].backgroundColor = backgroundColor;
-        salesChartInstance.data.datasets[0].borderColor = borderColor;
-        salesChartInstance.update();
-      } else {
-        salesChartInstance = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: labels,
-            datasets: [{
-              label: 'Sales Revenue (₱)',
-              data: data,
-              backgroundColor: backgroundColor,
-              borderColor: borderColor,
-              borderWidth: 1
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-              legend: { display: true }
+    // Create or update the chart
+    if (salesChartInstance) {
+      salesChartInstance.data.labels = labels;
+      salesChartInstance.data.datasets[0].data = data;
+      salesChartInstance.update();
+    } else {
+      salesChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Daily Sales (₱)',
+            data: data,
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderColor: 'rgba(59, 130, 246, 0.8)',
+            borderWidth: 2,
+            pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+            pointBorderColor: '#fff',
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: 'rgba(59, 130, 246, 1)',
+            pointHoverBorderColor: '#fff',
+            pointHitRadius: 10,
+            pointBorderWidth: 2,
+            tension: 0.1,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { 
+              display: true,
+              position: 'top'
             },
-            scales: {
-              y: {
-                beginAtZero: true,
-                title: { display: true, text: 'Revenue (₱)' }
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `₱${context.raw.toFixed(2)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { 
+                display: true, 
+                text: 'Revenue (₱)' 
+              },
+              ticks: {
+                callback: function(value) {
+                  return '₱' + value.toLocaleString();
+                }
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Date'
+              },
+              ticks: {
+                autoSkip: true,
+                maxRotation: 45,
+                minRotation: 30
               }
             }
           }
-        });
-      }
-    });
+        }
+      });
+    }
   } catch (err) {
     console.error('Error updating sales chart:', err);
+    // Show error message to user
+    const chartContainer = document.getElementById('movementTrend');
+    if (chartContainer) {
+      chartContainer.innerHTML = `
+        <div class="error-message">
+          <p>Error loading sales data: ${err.message || 'Unknown error'}</p>
+          <button onclick="updateSalesChart()" class="btn btn-primary">Retry</button>
+        </div>
+        <canvas id="salesChart" style="display: none;"></canvas>
+      `;
+    }
+  }
+}
+
+// Handle increment button click
+async function handleIncrement(e) {
+  const productId = e.target.dataset.id;
+  const input = document.querySelector(`.quantity-input[data-id="${productId}"]`);
+  input.value = parseInt(input.value) + 1;
+}
+
+// Handle decrement button click
+async function handleDecrement(e) {
+  const productId = e.target.dataset.id;
+  const input = document.querySelector(`.quantity-input[data-id="${productId}"]`);
+  const newValue = Math.max(0, parseInt(input.value) - 1);
+  input.value = newValue;
+}
+
+// Handle delete button click
+async function handleDelete(e) {
+  if (!confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
+    return;
+  }
+  
+  const id = e.target.dataset.id;
+  try {
+    const product = allProducts.find(p => p.id === id);
+    if (product) {
+      // Log the deletion
+      await addLogEntry(
+        id,
+        product.name,
+        0,
+        'delete',
+        'Product deleted from inventory'
+      );
+      
+      // Delete the product from Firestore
+      await deleteDoc(doc(db, "products", id));
+      
+      alert('Product deleted successfully!');
+    }
+  } catch (err) {
+    console.error('Error deleting product:', err);
+    alert('Error deleting product: ' + err.message);
+  }
+}
+
+// Handle update button click
+async function handleUpdate(e) {
+  const productId = e.target.dataset.id;
+  const input = document.querySelector(`.quantity-input[data-id="${productId}"]`);
+  const newQuantity = parseInt(input.value);
+  
+  if (isNaN(newQuantity) || newQuantity < 0) {
+    alert('Please enter a valid quantity');
+    return;
+  }
+  
+  try {
+    const productDoc = await getDoc(doc(db, "products", productId));
+    if (!productDoc.exists()) {
+      throw new Error('Product not found');
+    }
+    
+    const productData = productDoc.data();
+    const oldQuantity = productData.quantity || 0;
+    const quantityDiff = newQuantity - oldQuantity;
+    
+    if (quantityDiff === 0) {
+      return; // No change needed
+    }
+    
+    // Update the product quantity in Firestore
+    await updateDoc(doc(db, "products", productId), {
+      quantity: newQuantity
+    });
+    
+    // Log the stock change
+    const logType = quantityDiff > 0 ? 'in' : 'out';
+    const absDiff = Math.abs(quantityDiff);
+    await addLogEntry(
+      productId,
+      productData.name,
+      absDiff,
+      logType,
+      `Stock ${logType === 'in' ? 'added' : 'removed'} via quantity update`
+    );
+    
+    alert(`Stock updated successfully! ${absDiff} items ${logType === 'in' ? 'added to' : 'removed from'} inventory.`);
+  } catch (error) {
+    console.error('Error updating product quantity:', error);
+    alert('Error updating product quantity: ' + error.message);
   }
 }
 
@@ -672,9 +960,15 @@ function loadRecentLogs() {
     logsTableBody.innerHTML = '';
     filteredLogs.forEach(r => {
       const product = allProducts.find(p => p.id === r.productId);
-      const price = product ? product.price || 0 : 0;
-      // Only show total sales for items marked as 'sold'
-      const totalSales = (r.type === 'out' && r.remarks === 'sold') ? (price * r.qty).toFixed(2) : '-';
+      // For sales, we'll get the price from the remarks if available
+      let price = 0;
+      if (r.type === 'sale' && r.remarks) {
+        // Extract price from remarks if it's a sale
+        const priceMatch = r.remarks.match(/at ₱([\d.]+)/);
+        price = priceMatch ? parseFloat(priceMatch[1]) : (product ? product.price : 0);
+      } else {
+        price = product ? product.price || 0 : 0;
+      }
       
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -683,8 +977,8 @@ function loadRecentLogs() {
         <td>${r.productName || r.productId || ''}</td>
         <td>${r.type || ''}</td>
         <td>${r.qty || 0}</td>
-        <td>₱${price.toFixed(2)}</td>
-        <td>${totalSales === '-' ? '-' : '₱' + totalSales}</td>
+        <td>${r.type === 'sale' ? `₱${price.toFixed(2)}` : '-'}</td>
+        <td>${r.type === 'sale' ? `₱${(r.qty * price).toFixed(2)}` : '-'}</td>
         <td>${r.remarks || ''}</td>
       `;
       logsTableBody.appendChild(tr);
@@ -692,8 +986,317 @@ function loadRecentLogs() {
   });
 }
 
-// Add event listeners for filter changes
+// Initialize POS System
+let cart = [];
+
+// POS Elements
+const posSearchInput = document.getElementById('posSearch');
+const posProductsList = document.getElementById('posProductsList');
+const cartItems = document.getElementById('cartItems');
+const cartSubtotal = document.getElementById('cartSubtotal');
+const cartTax = document.getElementById('cartTax');
+const cartTotal = document.getElementById('cartTotal');
+const clearCartBtn = document.getElementById('clearCart');
+const checkoutBtn = document.getElementById('checkoutBtn');
+
+// Load products for POS
+function loadProductsForPOS(products) {
+  posProductsList.innerHTML = '';
+  
+  products.forEach(product => {
+    const productCard = document.createElement('div');
+    productCard.className = 'product-card';
+    productCard.innerHTML = `
+      <div class="product-name">${product.name}</div>
+      <div class="product-price">₱${(product.price || 0).toFixed(2)}</div>
+      <div class="product-stock">${product.quantity || 0} ${product.unit || 'pcs'} in stock</div>
+    `;
+    
+    productCard.addEventListener('click', () => addToCart(product));
+    posProductsList.appendChild(productCard);
+  });
+}
+
+// Add product to cart
+function addToCart(product) {
+  const existingItem = cart.find(item => item.id === product.id);
+  
+  if (existingItem) {
+    // Check if we have enough stock
+    if (existingItem.quantity >= product.quantity) {
+      alert('Not enough stock available');
+      return;
+    }
+    existingItem.quantity += 1;
+  } else {
+    if (product.quantity < 1) {
+      alert('This product is out of stock');
+      return;
+    }
+    cart.push({
+      ...product,
+      quantity: 1
+    });
+  }
+  
+  updateCart();
+}
+
+// Update cart UI
+function updateCart() {
+  // Clear current cart display
+  cartItems.innerHTML = '';
+  
+  if (cart.length === 0) {
+    cartItems.innerHTML = `
+      <div class="empty-cart">
+        <p>Your cart is empty</p>
+        <p>Search and add products to get started</p>
+      </div>
+    `;
+    checkoutBtn.disabled = true;
+    // Explicitly set totals to zero when cart is empty
+    cartSubtotal.textContent = '₱0.00';
+    cartTotal.textContent = '₱0.00';
+    return; // Exit early since there are no items to process
+  } else {
+    cart.forEach(item => {
+      const cartItem = document.createElement('div');
+      cartItem.className = 'cart-item';
+      cartItem.innerHTML = `
+        <div class="cart-item-details">
+          <div class="cart-item-name">${item.name}</div>
+          <div class="cart-item-price">₱${(item.price * item.quantity).toFixed(2)}</div>
+        </div>
+        <div class="cart-item-quantity">
+          <button class="decrease-quantity" data-id="${item.id}">-</button>
+          <span>${item.quantity}</span>
+          <button class="increase-quantity" data-id="${item.id}" ${item.quantity >= item.stock ? 'disabled' : ''}>+</button>
+        </div>
+        <button class="cart-item-remove" data-id="${item.id}">×</button>
+      `;
+      cartItems.appendChild(cartItem);
+    });
+    
+    // Add event listeners to the new buttons
+    document.querySelectorAll('.decrease-quantity').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.target.getAttribute('data-id');
+        updateCartItemQuantity(id, -1);
+      });
+    });
+    
+    document.querySelectorAll('.increase-quantity').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.target.getAttribute('data-id');
+        updateCartItemQuantity(id, 1);
+      });
+    });
+    
+    document.querySelectorAll('.cart-item-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.target.getAttribute('data-id');
+        removeFromCart(id);
+      });
+    });
+    
+    checkoutBtn.disabled = false;
+  }
+  
+  // Update totals
+  updateCartTotals();
+}
+
+// Update item quantity in cart
+function updateCartItemQuantity(productId, change) {
+  const item = cart.find(item => item.id === productId);
+  if (!item) return;
+  
+  const newQuantity = item.quantity + change;
+  
+  if (newQuantity < 1) {
+    removeFromCart(productId);
+    return;
+  }
+  
+  // Check stock
+  const product = allProducts.find(p => p.id === productId);
+  if (product && newQuantity > product.quantity) {
+    alert('Not enough stock available');
+    return;
+  }
+  
+  item.quantity = newQuantity;
+  updateCart();
+}
+
+// Remove item from cart
+function removeFromCart(productId) {
+  cart = cart.filter(item => item.id !== productId);
+  updateCart();
+}
+
+// Update cart totals
+function updateCartTotals() {
+  if (cart.length === 0) {
+    // Explicitly set totals to zero when cart is empty
+    cartSubtotal.textContent = '₱0.00';
+    cartTotal.textContent = '₱0.00';
+    return;
+  }
+  
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  
+  cartSubtotal.textContent = `₱${subtotal.toFixed(2)}`;
+  cartTotal.textContent = `₱${subtotal.toFixed(2)}`;
+}
+
+// Clear cart
+function clearCart() {
+  cart = [];
+  // Update cart display directly without triggering additional updates
+  cartItems.innerHTML = `
+    <div class="empty-cart">
+      <p>Your cart is empty</p>
+      <p>Search and add products to get started</p>
+    </div>
+  `;
+  cartSubtotal.textContent = '₱0.00';
+  cartTotal.textContent = '₱0.00';
+  checkoutBtn.disabled = true;
+}
+
+// Process checkout
+async function processCheckout() {
+  if (cart.length === 0) return;
+  
+  if (!confirm('Confirm sale of these items?')) {
+    return;
+  }
+
+  try {
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const total = subtotal;
+
+    // Create a transaction record
+    const transactionRef = await addDoc(collection(db, 'transactions'), {
+      date: serverTimestamp(),
+      items: cart.map(item => ({
+        productId: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        unit: item.unit
+      })),
+      subtotal: subtotal,
+      total: total,
+      userId: auth.currentUser?.uid,
+      userEmail: auth.currentUser?.email || 'anonymous',
+      status: 'completed',
+      type: 'sale'
+    });
+
+    // Process each item in the cart
+    for (const item of cart) {
+      const productRef = doc(db, 'products', item.id);
+      const productDoc = await getDoc(productRef);
+      
+      if (productDoc.exists()) {
+        const currentQty = productDoc.data().quantity || 0;
+        const newQty = currentQty - item.quantity;
+        
+        // Update product quantity
+        await updateDoc(productRef, { 
+          quantity: newQty,
+          lastUpdated: serverTimestamp()
+        });
+        
+        // Item logging is now handled by the summary log below
+      }
+    }
+
+    // Log each sold item with quantity and price
+    for (const item of cart) {
+      await addLogEntry(
+        item.id,
+        item.name,
+        item.quantity,  // Quantity sold
+        'sale',
+        `Sold ${item.quantity} ${item.unit || 'pcs'} at ₱${item.price.toFixed(2)} each`
+      );
+    }
+
+    // Show success message
+    alert('Sale completed successfully!');
+    
+    // Clear cart and reset cart display
+    cart = [];
+    cartItems.innerHTML = `
+      <div class="empty-cart">
+        <p>Your cart is empty</p>
+        <p>Search and add products to get started</p>
+      </div>
+    `;
+    cartSubtotal.textContent = '₱0.00';
+    cartTotal.textContent = '₱0.00';
+    checkoutBtn.disabled = true;
+    
+    // Don't update the total sales display
+    // updateTotalSales();
+    
+  } catch (error) {
+    console.error('Error processing sale:', error);
+    alert('Error processing sale: ' + error.message);
+  }
+}
+
+// Initialize POS event listeners
+function initPOS() {
+  // Clear cart button
+  clearCartBtn.addEventListener('click', clearCart);
+  
+  // Checkout button
+  checkoutBtn.addEventListener('click', processCheckout);
+  
+  // Search functionality
+  posSearchInput.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    const productCards = document.querySelectorAll('.product-card');
+    
+    productCards.forEach(card => {
+      const name = card.querySelector('.product-name').textContent.toLowerCase();
+      if (name.includes(searchTerm)) {
+        card.style.display = 'flex';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  });
+  
+  // Load products when POS section is shown
+  document.querySelector('[data-section="pos"]').addEventListener('click', () => {
+    loadProductsForPOS(allProducts);
+  });
+}
+
+// Add event listeners for filter changes and dashboard initialization
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize POS
+  initPOS();
+  
+  // Initialize dashboard data
+  updateTotalSales();
+  
+  // Add click handler for dashboard section
+  const dashboardSection = document.querySelector('[data-section="dashboard"]');
+  if (dashboardSection) {
+    dashboardSection.addEventListener('click', () => {
+      updateTotalSales();
+      updateStockMovementToday();
+    });
+  }
+  
+  // Existing filter code...
   const logProductFilter = document.getElementById('logProductFilter');
   const logType = document.getElementById('logType');
   const logFrom = document.getElementById('logFrom');

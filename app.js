@@ -62,6 +62,7 @@ async function addLogEntry(productId, productName, qty, type, remarks) {
 // 🔹 Add Product
 addForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  
   const id = document.getElementById("productId").value.trim();
   const name = document.getElementById("name").value.trim();
   const category = document.getElementById("category").value.trim();
@@ -69,7 +70,18 @@ addForm.addEventListener("submit", async (e) => {
   const unit = document.getElementById("unit").value.trim();
   const quantity = parseInt(document.getElementById("quantity").value);
 
-  if (!id) return alert("Enter a Product ID");
+  if (!id) {
+    alert("Please enter a Product ID");
+    return;
+  }
+
+  // Show confirmation dialog
+  const confirmation = confirm(`Are you sure you want to add this product?\n\nID: ${id}\nName: ${name}\nCategory: ${category}\nPrice: ${price}\nUnit: ${unit}\nQuantity: ${quantity}`);
+  
+  if (!confirmation) {
+    return; // User cancelled the operation
+  }
+
   try {
     // Add the product to Firestore
     await setDoc(doc(db, "products", id), { 
@@ -92,7 +104,14 @@ addForm.addEventListener("submit", async (e) => {
     );
     
     addForm.reset();
-    alert("Product added successfully!");
+    showNotification("Product added successfully! The dashboard has been updated.", 'success');
+    
+    // Force a refresh of all dashboard components
+    updateDashboardCards(allProducts);
+    updateStockMovementToday();
+    updateTodaysSales();
+    updateTotalSales();
+    updateStockChart();
   } catch (err) { 
     console.error(err);
     alert("Error adding product: " + err.message);
@@ -108,7 +127,7 @@ const unsubscribeProducts = onSnapshot(collection(db, "products"), (snapshot) =>
   // Update products display
   displayProducts(allProducts);
   
-  // Initialize dashboard
+  // Update dashboard components
   updateDashboardCards(allProducts);
   updateStockMovementToday();
   updateTotalSales();
@@ -122,6 +141,16 @@ const unsubscribeProducts = onSnapshot(collection(db, "products"), (snapshot) =>
   
   // Update cart with latest product data
   updateCartWithLatestData();
+  
+  // Force update any charts that might need it
+  if (salesChartInstance) {
+    updateSalesChart();
+  }
+  if (stockChartInstance) {
+    updateStockChart();
+  }
+  
+  console.log('Dashboard updated with latest product data');
 }, (error) => {
   console.error('Error receiving real-time product updates:', error);
 });
@@ -187,11 +216,34 @@ function displayProducts(products) {
 }
 
 function updateDashboardCards(products) {
-  const total = products.length;
-  const threshold = parseInt(minStockInput?.value || 5, 10);
-  const low = products.filter(p => (p.quantity || 0) <= (p.minStock || threshold)).length;
-  document.getElementById('totalProducts').textContent = total;
-  document.getElementById('lowStockCount').textContent = low;
+  try {
+    const total = products.length;
+    const threshold = parseInt(minStockInput?.value || 5, 10);
+    const low = products.filter(p => (p.quantity || 0) <= (p.minStock || threshold)).length;
+    
+    const totalProductsEl = document.getElementById('totalProducts');
+    const lowStockCountEl = document.getElementById('lowStockCount');
+    
+    if (totalProductsEl) totalProductsEl.textContent = total;
+    if (lowStockCountEl) lowStockCountEl.textContent = low;
+    
+    // Also update any other dashboard elements that might show stock information
+    const stockValueEl = document.getElementById('stockValue');
+    if (stockValueEl) {
+      const totalValue = products.reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 0)), 0);
+      stockValueEl.textContent = `₱${totalValue.toFixed(2)}`;
+    }
+    
+    // Update the products count in the dashboard if it exists
+    const dashboardProductsCount = document.querySelector('.dashboard-card:nth-child(1) .card-value');
+    if (dashboardProductsCount) {
+      dashboardProductsCount.textContent = total;
+    }
+    
+    console.log('Dashboard cards updated:', { totalProducts: total, lowStockCount: low });
+  } catch (error) {
+    console.error('Error updating dashboard cards:', error);
+  }
 }
 
 // Calculate stock movement today
@@ -1476,6 +1528,39 @@ function formatDate(date) {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// Refresh dashboard data
+async function refreshDashboard() {
+  const refreshBtn = document.getElementById('refreshDashboard');
+  const icon = refreshBtn.querySelector('.icon');
+  
+  // Add loading animation
+  refreshBtn.disabled = true;
+  icon.style.animation = 'spin 1s linear infinite';
+  
+  try {
+    // Refresh products data
+    const productsQuery = query(collection(db, 'products'));
+    const snapshot = await getDocs(productsQuery);
+    const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    allProducts = products;
+    displayProducts(products);
+    updateDashboardCards(products);
+    updateStockChart();
+    updateSalesChart();
+    updateTodaysSales();
+    updateTotalSales();
+    updateStockMovementToday();
+    showNotification('Dashboard refreshed successfully', 'success');
+  } catch (error) {
+    console.error('Error refreshing dashboard:', error);
+    showNotification('Error refreshing dashboard', 'error');
+  } finally {
+    // Remove loading animation
+    refreshBtn.disabled = false;
+    icon.style.animation = 'none';
+  }
 }
 
 // Add event listeners for filter changes and dashboard initialization

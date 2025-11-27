@@ -213,6 +213,43 @@ body {
   color: var(--color-text);
   margin: 0;
   line-height: 1.2;
+  display: inline-block;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+  color: var(--color-text-light);
+}
+
+.btn-icon:hover {
+  background: var(--color-bg);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn-icon .icon {
+  font-size: 16px;
+  transition: transform 0.3s ease;
+}
+
+.btn-icon:hover .icon {
+  transform: rotate(180deg);
 }
 
 .section-header .subtitle {

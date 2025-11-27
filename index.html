@@ -221,6 +221,7 @@
                   <th>Price</th>
                   <th>Total Sales</th>
                   <th>Remarks</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -328,6 +329,11 @@
             <div class="products-grid" id="posProductsList">
               <div class="loading">Loading products...</div>
             </div>
+
+             <div class="cart-total-row total" style="display: none;">
+                  <span>Total Sales:</span>
+                  <span id="cartTotal">₱0.00</span>
+                </div>
             
             <!-- Shopping Cart -->
             <div class="pos-cart">
@@ -343,10 +349,7 @@
                   <span>Subtotal:</span>
                   <span id="cartSubtotal">₱0.00</span>
                 </div>
-                <div class="cart-total-row total">
-                  <span>Total:</span>
-                  <span id="cartTotal">₱0.00</span>
-                </div>
+               
               </div>
               <button id="checkoutBtn" class="btn btn-primary btn-block" disabled>Checkout</button>
             </div>

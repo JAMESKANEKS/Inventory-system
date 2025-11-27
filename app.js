@@ -100,13 +100,29 @@ addForm.addEventListener("submit", async (e) => {
 });
 
 // 🔹 Real-time display
-onSnapshot(collection(db, "products"), (snapshot) => {
+const unsubscribeProducts = onSnapshot(collection(db, "products"), (snapshot) => {
   const updatedProducts = [];
   snapshot.forEach((docSnap) => updatedProducts.push(docSnap.data()));
   allProducts = updatedProducts;
+  
+  // Update products display
   displayProducts(allProducts);
+  
+  // Update all dashboard components
   updateDashboardCards(allProducts);
+  updateStockMovementToday();
   updateTotalSales();
+  updateStockChart();
+  
+  // If on POS section, update product availability
+  if (document.querySelector('#pos.section.active')) {
+    loadProductsForPOS(allProducts);
+  }
+  
+  // Update cart with latest product data
+  updateCartWithLatestData();
+}, (error) => {
+  console.error('Error receiving real-time product updates:', error);
 });
 
 function displayProducts(products) {
@@ -910,38 +926,56 @@ function filterLogs(logs) {
 // Apply filters and render logs
 function applyLogFilters() {
   const logs = Array.from(document.querySelectorAll('#logsTable tbody tr'));
+  if (logs.length === 0) return;
+  
+  const productFilter = document.getElementById('logProductFilter')?.value?.toLowerCase() || '';
+  const typeFilter = document.getElementById('logType')?.value?.toLowerCase() || '';
+  const fromDate = document.getElementById('logFrom')?.value;
+  const toDate = document.getElementById('logTo')?.value;
+  
   logs.forEach(row => {
-    const productCell = row.cells[2].textContent.toLowerCase();
-    const typeCell = row.cells[3].textContent.toLowerCase();
-    const dateCell = new Date(row.cells[0].textContent).toISOString().split('T')[0];
-    
-    const productFilter = document.getElementById('logProductFilter').value.toLowerCase();
-    const typeFilter = document.getElementById('logType').value.toLowerCase();
-    const fromDate = document.getElementById('logFrom').value;
-    const toDate = document.getElementById('logTo').value;
+    const productCell = row.cells[2]?.textContent?.toLowerCase() || '';
+    const typeCell = row.cells[3]?.textContent?.toLowerCase() || '';
+    const dateCell = new Date(row.cells[0]?.textContent);
+    const dateString = !isNaN(dateCell) ? dateCell.toISOString().split('T')[0] : '';
     
     let shouldShow = true;
     
-    // Filter by product
+    // Filter by product (name or ID)
     if (productFilter && !productCell.includes(productFilter)) {
       shouldShow = false;
     }
     
-    // Filter by type
-    if (typeFilter && typeCell !== typeFilter) {
+    // Filter by type (case-insensitive partial match)
+    if (typeFilter && !typeCell.includes(typeFilter)) {
       shouldShow = false;
     }
     
     // Filter by date range
-    if (fromDate && dateCell < fromDate) {
+    if (fromDate && dateString < fromDate) {
       shouldShow = false;
     }
-    if (toDate && dateCell > toDate) {
+    if (toDate && dateString > toDate) {
       shouldShow = false;
     }
     
     row.style.display = shouldShow ? '' : 'none';
   });
+}
+
+// Function to delete a log entry
+async function deleteLog(logId) {
+  if (!confirm('Are you sure you want to delete this log entry? This action cannot be undone.')) {
+    return;
+  }
+
+  try {
+    await deleteDoc(doc(db, 'logs', logId));
+    console.log('Log entry deleted successfully');
+  } catch (error) {
+    console.error('Error deleting log entry:', error);
+    alert('Error deleting log entry: ' + error.message);
+  }
 }
 
 // Load recent logs for Logs section
@@ -971,6 +1005,7 @@ function loadRecentLogs() {
       }
       
       const tr = document.createElement('tr');
+      tr.setAttribute('data-log-id', r.id);
       tr.innerHTML = `
         <td>${r.timestamp ? new Date(r.timestamp.seconds * 1000).toLocaleString() : ''}</td>
         <td>${r.userEmail || r.userId || ''}</td>
@@ -980,8 +1015,22 @@ function loadRecentLogs() {
         <td>${r.type === 'sale' ? `₱${price.toFixed(2)}` : '-'}</td>
         <td>${r.type === 'sale' ? `₱${(r.qty * price).toFixed(2)}` : '-'}</td>
         <td>${r.remarks || ''}</td>
+        <td>
+          <button class="btn-delete-log" data-log-id="${r.id}" title="Delete log entry">
+            🗑️
+          </button>
+        </td>
       `;
       logsTableBody.appendChild(tr);
+      
+      // Add click event to the delete button
+      const deleteBtn = tr.querySelector('.btn-delete-log');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteLog(r.id);
+        });
+      }
     });
   });
 }
@@ -1044,6 +1093,8 @@ function addToCart(product) {
 
 // Update cart UI
 function updateCart() {
+  // Remove any items that no longer exist in inventory
+  cart = cart.filter(item => allProducts.some(p => p.id === item.id));
   // Clear current cart display
   cartItems.innerHTML = '';
   
@@ -1166,6 +1217,28 @@ function clearCart() {
   checkoutBtn.disabled = true;
 }
 
+// Update cart with latest product data
+function updateCartWithLatestData() {
+  if (cart.length === 0) return;
+  
+  let needsUpdate = false;
+  cart = cart.map(item => {
+    const product = allProducts.find(p => p.id === item.id);
+    if (!product) return item;
+    
+    // Check if price or name has changed
+    if (product.price !== item.price || product.name !== item.name) {
+      needsUpdate = true;
+      return { ...item, price: product.price, name: product.name };
+    }
+    return item;
+  });
+  
+  if (needsUpdate) {
+    updateCart();
+  }
+}
+
 // Process checkout
 async function processCheckout() {
   if (cart.length === 0) return;
@@ -1252,6 +1325,11 @@ async function processCheckout() {
 
 // Initialize POS event listeners
 function initPOS() {
+  // Clear any existing listeners to prevent duplicates
+  if (window.posInitialized) {
+    return;
+  }
+  window.posInitialized = true;
   // Clear cart button
   clearCartBtn.addEventListener('click', clearCart);
   
@@ -1286,6 +1364,25 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Initialize dashboard data
   updateTotalSales();
+  
+  // Add event listeners for log filters when logs section is shown
+  const logsSection = document.querySelector('[data-section="logs"]');
+  if (logsSection) {
+    const logProductFilter = document.getElementById('logProductFilter');
+    const logType = document.getElementById('logType');
+    const logFrom = document.getElementById('logFrom');
+    const logTo = document.getElementById('logTo');
+    
+    if (logProductFilter && logType && logFrom && logTo) {
+      // Add input event listeners for text and date inputs
+      [logProductFilter, logFrom, logTo].forEach(input => {
+        input.addEventListener('input', applyLogFilters);
+      });
+      
+      // Add change event listener for select dropdown
+      logType.addEventListener('change', applyLogFilters);
+    }
+  }
   
   // Add click handler for dashboard section
   const dashboardSection = document.querySelector('[data-section="dashboard"]');

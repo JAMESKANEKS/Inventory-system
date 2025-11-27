@@ -108,10 +108,11 @@ const unsubscribeProducts = onSnapshot(collection(db, "products"), (snapshot) =>
   // Update products display
   displayProducts(allProducts);
   
-  // Update all dashboard components
+  // Initialize dashboard
   updateDashboardCards(allProducts);
   updateStockMovementToday();
   updateTotalSales();
+  updateTodaysSales();
   updateStockChart();
   
   // If on POS section, update product availability
@@ -219,13 +220,69 @@ async function updateStockMovementToday() {
   }
 }
 
-// Calculate total sales from the transactions collection
+// Update dashboard when products change
+const productsQuery = query(collection(db, 'products'));
+onSnapshot(productsQuery, (snapshot) => {
+  // Update today's sales when products change (in case of new sales)
+  updateTodaysSales();
+  let movementCount = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  snapshot.forEach(doc => {
+    const log = doc.data();
+    if (log.timestamp) {
+      const logDate = new Date(log.timestamp.seconds * 1000);
+      logDate.setHours(0, 0, 0, 0);
+      if (logDate.getTime() === today.getTime()) {
+        movementCount++;
+      }
+    }
+  });
+  document.getElementById('stockMovementToday').textContent = movementCount;
+});
+
+// Calculate today's sales
+async function updateTodaysSales() {
+  try {
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    
+    // Query transactions for today
+    const transactionsRef = collection(db, 'transactions');
+    const q = query(
+      transactionsRef,
+      where('date', '>=', startOfDay)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    let totalSales = 0;
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      totalSales += data.total || 0;
+    });
+    
+    // Update the UI
+    const todaysSalesElement = document.getElementById('todaysSales');
+    if (todaysSalesElement) {
+      todaysSalesElement.textContent = `₱${totalSales.toFixed(2)}`;
+    }
+    
+    return totalSales;
+  } catch (error) {
+    console.error('Error calculating today\'s sales:', error);
+    return 0;
+  }
+}
+
+// Calculate total sales from all transactions
 async function updateTotalSales() {
   try {
     // Import required Firestore functions
     const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js');
     
-    // Get all completed sale transactions
+    // Query all sale transactions
     const transactionsQuery = query(
       collection(db, 'transactions'),
       where('type', '==', 'sale')
@@ -241,7 +298,7 @@ async function updateTotalSales() {
     });
     
     // Format the total with 2 decimal places and add currency symbol
-    const formattedTotal = isNaN(totalSales) ? '0.00' : totalSales.toLocaleString('en-PH', { 
+    const formattedTotal = totalSales.toLocaleString('en-PH', { 
       style: 'currency', 
       currency: 'PHP',
       minimumFractionDigits: 2,
@@ -271,6 +328,7 @@ async function updateTotalSales() {
   }
 }
 
+
 // Chart instances
 let salesChartInstance = null;
 let stockChartInstance = null;
@@ -289,12 +347,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1); // Default to last 30 days
   
   // Format date as YYYY-MM-DD for date inputs
-  const formatDate = (date) => {
+  function formatDate(date) {
+    if (!(date instanceof Date)) {
+      date = new Date(date);
+    }
+    
+    // Handle invalid dates
+    if (isNaN(date.getTime())) {
+      console.error('Invalid date provided to formatDate');
+      return '';
+    }
+    
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
-  };
+  }
 
   const startDateInput = document.getElementById('salesStartDate');
   const endDateInput = document.getElementById('salesEndDate');
@@ -1323,6 +1391,43 @@ async function processCheckout() {
   }
 }
 
+// Handle refresh button click
+function handleRefreshStock() {
+  const refreshBtn = document.getElementById('refreshStockBtn');
+  const icon = refreshBtn.querySelector('.icon');
+  
+  // Add loading class
+  refreshBtn.disabled = true;
+  icon.style.animation = 'spin 1s linear infinite';
+  
+  // Force reload products from Firestore
+  loadProductsForPOS(allProducts);
+  
+  // Show success message
+  showNotification('Stock refreshed successfully!', 'success');
+  
+  // Reset button state after a short delay
+  setTimeout(() => {
+    refreshBtn.disabled = false;
+    icon.style.animation = '';
+  }, 1000);
+}
+
+// Show notification function
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification ${type}`;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  // Remove notification after 3 seconds
+  setTimeout(() => {
+    notification.classList.add('fade-out');
+    setTimeout(() => notification.remove(), 300);
+  }, 3000);
+}
+
 // Initialize POS event listeners
 function initPOS() {
   // Clear any existing listeners to prevent duplicates
@@ -1330,11 +1435,18 @@ function initPOS() {
     return;
   }
   window.posInitialized = true;
+  
   // Clear cart button
   clearCartBtn.addEventListener('click', clearCart);
   
   // Checkout button
   checkoutBtn.addEventListener('click', processCheckout);
+  
+  // Refresh stock button
+  const refreshBtn = document.getElementById('refreshStockBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', handleRefreshStock);
+  }
   
   // Search functionality
   posSearchInput.addEventListener('input', (e) => {
@@ -1357,13 +1469,77 @@ function initPOS() {
   });
 }
 
+// Format date as YYYY-MM-DD for date inputs
+function formatDate(date) {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Add event listeners for filter changes and dashboard initialization
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize POS
   initPOS();
   
-  // Initialize dashboard data
-  updateTotalSales();
+  // Update today's sales on page load
+  updateTodaysSales().catch(console.error);
+  
+  // Set default date to today in the date picker and setup change listener
+  const salesDateInput = document.getElementById('salesDate');
+  const updateSalesBtn = document.getElementById('updateSalesBtn');
+  
+  if (salesDateInput && updateSalesBtn) {
+    // Format today's date as YYYY-MM-DD for the date input
+    const today = new Date();
+    const formattedDate = today.toISOString().split('T')[0];
+    salesDateInput.value = formattedDate;
+    
+        // Function to update sales data
+    const updateSalesData = async () => {
+      try {
+        const selectedDate = salesDateInput.value;
+        if (selectedDate) {
+          // Convert the date to a proper format for the query
+          const date = new Date(selectedDate);
+          const formattedDate = formatDate(date);
+          
+          // Update the date input value to ensure consistency
+          salesDateInput.value = formattedDate;
+          
+          // Update the sales data
+          await updateTotalSales(formattedDate);
+          
+          // Also update any related charts or data
+          updateSalesChart();
+        }
+      } catch (error) {
+        console.error('Error updating sales data:', error);
+        showNotification('Failed to update sales data. Please try again.', 'error');
+      }
+    };
+    
+    // Update sales when update button is clicked
+    updateSalesBtn.addEventListener('click', updateSalesData);
+    
+    // Also update when Enter is pressed in the date input or when the date changes
+    salesDateInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        updateSalesData();
+      }
+    });
+    
+    // Also update when the date changes
+    salesDateInput.addEventListener('change', updateSalesData);
+    
+    // Initial load with today's sales
+    updateSalesData();
+  }
+  
+  // Initialize dashboard data with today's sales
+  updateTotalSales(formatDate(new Date()));
+  updateTodaysSales();
   
   // Add event listeners for log filters when logs section is shown
   const logsSection = document.querySelector('[data-section="logs"]');
@@ -1388,7 +1564,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const dashboardSection = document.querySelector('[data-section="dashboard"]');
   if (dashboardSection) {
     dashboardSection.addEventListener('click', () => {
-      updateTotalSales();
+      const selectedDate = document.getElementById('salesDate')?.value;
+      updateTotalSales(selectedDate);
+      updateTodaysSales();
       updateStockMovementToday();
     });
   }

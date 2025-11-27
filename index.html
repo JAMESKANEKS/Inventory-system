@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="logo1.png" type="image/png">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script type="module" src="./firebase.js"></script>
   <script type="module" src="./auth.js"></script>
   <script type="module" src="./app.js"></script>
@@ -99,6 +100,13 @@
               <div class="stat-content">
                 <div class="stat-value" id="totalSales">₱0</div>
                 <div class="stat-label">Total Sales Revenue</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">📅</div>
+              <div class="stat-content">
+                <div class="stat-value" id="todaysSales">₱0</div>
+                <div class="stat-label">Today's Sales</div>
               </div>
             </div>
           </div>
@@ -315,8 +323,13 @@
         <!-- Point of Sale Section -->
         <section id="pos" class="section">
           <div class="section-header">
-            <h1>Point of Sale</h1>
-            <p class="subtitle">Process sales and manage transactions</p>
+            <div>
+              <h1>Point of Sale</h1>
+              <p class="subtitle">Process sales and manage transactions</p>
+            </div>
+            <button id="refreshStockBtn" class="btn btn-primary" title="Refresh stock">
+              <span class="icon">🔄</span> Refresh Stock
+            </button>
           </div>
           
           <div class="pos-container">
